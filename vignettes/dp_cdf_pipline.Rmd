@@ -1,0 +1,136 @@
+---
+title: "dp_cdf_pipline"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{dp_cdf_pipline}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(dpBootstrap)
+```
+
+Here is the data that we want to use in the example. It's a sample from a (standard)-lognormal distribution.
+
+```{r}
+data <- exp(rnorm(1000))
+```
+
+
+First you need to define the differentially private mechanism that you want to apply to the data.
+Note that for this particular dp cdf mechanism you need to provide a lower and upper bound where you expect the data to be (without looking at the data!).
+
+```{r}
+mechanism <- function(x) {
+  lower_bound <- 0
+  upper_bound <- 40
+  
+  # This generates a projected dp cdf of the data. All functions are part of the
+  # dpBootstrap package.
+  projected_dp_cdf <-
+    x |> bin_data(lower_bound = lower_bound, upper_bound = upper_bound) |> dp_cdf(rho = 0.5) |>
+    project_dp_cdf()
+  
+  # For the generic pipeline to work we want the output of the mechanism to be
+  # synthetic data in the same format as the input data.
+  M_inv <- get_inv_M(length(projected_dp_cdf$y))
+  
+  # Get counts per bin
+  tmp_count <-
+    round(M_inv %*% projected_dp_cdf$y * projected_dp_cdf$n, 0)
+  
+  # Replicate each bin the number of counts (this will bias mean estimation on 
+  # the synthetic data by approx. bin_width/2)
+  synth_data <- NULL
+  for (i in 1:nrow(tmp_count)) {
+    synth_data <-
+      c(synth_data, rep(projected_dp_cdf$x[i], tmp_count[i,]))
+  }
+  
+  # Make sure that examples in the excess bins are outside the boundaries but
+  # not -Inf or Inf (R won't count them otherwise).
+  synth_data[synth_data == -Inf] <- lower_bound - 1
+  synth_data[synth_data == Inf] <- upper_bound + 1
+  
+  return(synth_data)
+}
+```
+
+What statistics of interest do you want to calculate on the private data?
+The output should be a named list.
+
+```{r}
+statistics_of_interest <- function(x) {
+  list(median = median(x),
+       mean = mean(x),
+       quantiles = quantile(x, c(0.1, 0.25, 0.75, 0.9)))
+}
+```
+
+How do we get one bootstrap sample from the synthetic data?
+Here we use poisson sampling.
+
+```{r}
+one_bootstrap_sample <- function(x_tilde) {
+  pois <- rpois(length(x_tilde), 1)
+  boot_samp <- NULL
+  for (i in 1:length(pois)) {
+    boot_samp <- c(boot_samp, rep(i, pois[i]))
+  }
+  return(boot_samp)
+}
+```
+
+Now we repeat this to generate a list of ids for each bootstrap repetition
+
+```{r}
+bootstrap_sampler <- function(x_tilde, B = 1000) {
+  boot_ids_list <- lapply(1:B, function(x)
+    one_boot_sample(x_tilde))
+  return(boot_ids_list)
+}
+```
+
+And we can resample data and apply the mechanism.
+
+```{r}
+bootstrap_loop <- function(x_tilde, bootstrap_ids_list, mechanism, statistics_of_interest) {
+  b <- 1
+  theta_tilde_tilde_list <- vector("list", length = length(bootstrap_ids_list))
+  
+  cli::cli_progress_bar("Bootstrapping", total = length(bootstrap_ids_list))
+  for(bootstrap_ids in bootstrap_ids_list){
+    x_tilde_hat <- x_tilde[bootstrap_ids]
+    x_tilde_tilde <- mechanism(x_tilde_hat)
+    theta_tilde_tilde <- statistics_of_interest(x_tilde_tilde)
+    theta_tilde_tilde_list[[b]] <- theta_tilde_tilde
+    b <- b + 1
+    cli::cli_progress_update()
+  }
+  
+  return(theta_tilde_tilde_list)
+}
+```
+
+Now we have everything defined to run the dp_bootstrap function. Note that depending on the input data and mechanism all of the above functions need to be adapted to the application.
+
+```{r}
+results <- dp_bootstrap(
+  x = data,
+  mechanism = mechanism,
+  statistics_of_interest = statistics_of_interest,
+  B = 1000,
+  one_bootstrap_sample,
+  bootstrap_sampler,
+  bootstrap_loop
+)
+```
+

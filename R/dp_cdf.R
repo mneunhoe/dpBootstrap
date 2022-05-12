@@ -35,7 +35,7 @@ dp_cdf <-
 
     # Get n (if not provided)
     if (is.null(n)) {
-      n <- base::max(noisy_cumsum)
+      n <- noisy_cumsum[nrow(noisy_cumsum)]
     }
 
     noisy_cdf <-

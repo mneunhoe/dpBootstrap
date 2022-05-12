@@ -6,7 +6,8 @@
 #' @export
 boot_cdf <-
   function(cdf,
-           B = 1000) {
+           B = 1000,
+           project = FALSE) {
 
     if(any(base::diff(cdf$y) < 0)) {
       cdf$unprojected_y <- cdf$y
@@ -33,6 +34,10 @@ boot_cdf <-
     boot_noisy_cdf[boot_noisy_cdf > 1] <- 1
 
     cdf$bootstrap_samples <- boot_noisy_cdf
+
+    if(project){
+    cdf$projected_bootstrap_samples <- apply(cdf$bootstrap_samples, 2, function(x) isotone::gpava(cdf$x, x)$x)
+    }
 
     return(cdf)
   }
