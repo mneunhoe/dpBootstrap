@@ -2,6 +2,8 @@
 
 export(bin_data)
 export(boot_cdf)
+export(dp_bootstrap)
+export(dp_bootstrap_cdf)
 export(dp_cdf)
 export(fast_factorize_M)
 export(get_M)

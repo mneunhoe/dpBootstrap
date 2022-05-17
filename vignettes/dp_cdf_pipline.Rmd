@@ -21,7 +21,7 @@ library(dpBootstrap)
 Here is the data that we want to use in the example. It's a sample from a (standard)-lognormal distribution.
 
 ```{r}
-data <- exp(rnorm(1000))
+data <- (rnorm(1000))
 ```
 
 
@@ -30,13 +30,13 @@ Note that for this particular dp cdf mechanism you need to provide a lower and u
 
 ```{r}
 mechanism <- function(x) {
-  lower_bound <- 0
-  upper_bound <- 40
+  lower_bound <- -3
+  upper_bound <- 3
   
   # This generates a projected dp cdf of the data. All functions are part of the
   # dpBootstrap package.
   projected_dp_cdf <-
-    x |> bin_data(lower_bound = lower_bound, upper_bound = upper_bound) |> dp_cdf(rho = 0.5) |>
+    x |> bin_data(lower_bound = lower_bound, upper_bound = upper_bound, n_bins = 1000) |> dp_cdf(rho = Inf) |>
     project_dp_cdf()
   
   # For the generic pipeline to work we want the output of the mechanism to be
@@ -76,48 +76,34 @@ statistics_of_interest <- function(x) {
 ```
 
 How do we get one bootstrap sample from the synthetic data?
-Here we use poisson sampling.
+Here we use poisson sampling. And put it in a loop.
 
 ```{r}
-one_bootstrap_sample <- function(x_tilde) {
-  pois <- rpois(length(x_tilde), 1)
-  boot_samp <- NULL
-  for (i in 1:length(pois)) {
-    boot_samp <- c(boot_samp, rep(i, pois[i]))
+bootstrap_loop <-
+  function(x_tilde,
+           mechanism,
+           statistics_of_interest,
+           B) {
+    
+    theta_tilde_tilde_list <-
+      vector("list", length = B)
+    
+    cli::cli_progress_bar("Bootstrapping", total = B)
+    for (b in 1:B) {
+      pois <- rpois(length(x_tilde), 1)
+      boot_samp <- NULL
+      for (i in 1:length(pois)) {
+        boot_samp <- c(boot_samp, rep(i, pois[i]))
+      }
+      x_tilde_hat <- x_tilde[boot_samp]
+      x_tilde_tilde <- mechanism(x_tilde_hat)
+      theta_tilde_tilde <- statistics_of_interest(x_tilde_tilde)
+      theta_tilde_tilde_list[[b]] <- theta_tilde_tilde
+      cli::cli_progress_update()
+    }
+    
+    return(theta_tilde_tilde_list)
   }
-  return(boot_samp)
-}
-```
-
-Now we repeat this to generate a list of ids for each bootstrap repetition
-
-```{r}
-bootstrap_sampler <- function(x_tilde, B = 1000) {
-  boot_ids_list <- lapply(1:B, function(x)
-    one_boot_sample(x_tilde))
-  return(boot_ids_list)
-}
-```
-
-And we can resample data and apply the mechanism.
-
-```{r}
-bootstrap_loop <- function(x_tilde, bootstrap_ids_list, mechanism, statistics_of_interest) {
-  b <- 1
-  theta_tilde_tilde_list <- vector("list", length = length(bootstrap_ids_list))
-  
-  cli::cli_progress_bar("Bootstrapping", total = length(bootstrap_ids_list))
-  for(bootstrap_ids in bootstrap_ids_list){
-    x_tilde_hat <- x_tilde[bootstrap_ids]
-    x_tilde_tilde <- mechanism(x_tilde_hat)
-    theta_tilde_tilde <- statistics_of_interest(x_tilde_tilde)
-    theta_tilde_tilde_list[[b]] <- theta_tilde_tilde
-    b <- b + 1
-    cli::cli_progress_update()
-  }
-  
-  return(theta_tilde_tilde_list)
-}
 ```
 
 Now we have everything defined to run the dp_bootstrap function. Note that depending on the input data and mechanism all of the above functions need to be adapted to the application.
@@ -128,9 +114,15 @@ results <- dp_bootstrap(
   mechanism = mechanism,
   statistics_of_interest = statistics_of_interest,
   B = 1000,
-  one_bootstrap_sample,
-  bootstrap_sampler,
   bootstrap_loop
 )
+```
+
+Summarize results
+
+```{r}
+quantile(sapply(results$theta_tilde_tilde, function(x) x$median), c(0.025, 0.975))
+
+
 ```
 

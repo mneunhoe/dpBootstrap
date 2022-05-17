@@ -1,12 +1,12 @@
 #' @title Wrapper function to generate dp cdf and bootstrapped cdfs from univariate input data x
 #'
 #' @param x numeric input data
-#' @param lower_bound
-#' @param upper_bound
+#' @param lower_bound The lower bound of the data
+#' @param upper_bound The upper bound of the data
 #' @param n Number of observations in original data (if public).
-#' @param epsilon
-#' @param delta
-#' @param rho
+#' @param epsilon Privacy parameter epsilon
+#' @param delta Privacy parameter delta
+#' @param rho Privacy parameter rho (Either epsilon and delta or rho must be provided.)
 #' @param B Number of bootstrap repetitions.
 #' @param ... Placeholder for potential additional arguments for the functions called within the wrapper.
 #' @return A dp cdf and bootstrap samples

@@ -4,7 +4,7 @@
 \alias{boot_cdf}
 \title{Generate B bootstrapped cdfs from an input cdf}
 \usage{
-boot_cdf(cdf, B = 1000)
+boot_cdf(cdf, B = 1000, project = FALSE)
 }
 \arguments{
 \item{cdf}{A cdf. Ideally the output of projected_dp_cdf. If an unprojected noisy cdf is passed the projection will be done automatically.}
