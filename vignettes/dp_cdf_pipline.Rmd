@@ -44,6 +44,13 @@ projected_dp_cdf_mechanism <- function(data, n_bins = 1000, rho = 0.5, lower_bou
 }
 
 
+projected_dp_cdf_mechanism(pop)
+
+instantiated_mechanism <- function(data) {
+    projected_dp_cdf_mechanism(data, rho = 10)
+  }
+
+
 get_synthetic_data_from_cdf <- function(P_tilde) {
   lower_bound <- P_tilde$x[2]
   upper_bound <- P_tilde$x[length(P_tilde$x)-1]
@@ -73,7 +80,6 @@ get_synthetic_data_from_cdf <- function(P_tilde) {
   
   return(synthetic_data)
 }
-
 
 ```
 
