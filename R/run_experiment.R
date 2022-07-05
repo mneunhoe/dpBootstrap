@@ -39,9 +39,14 @@ run_experiment <- function(run_id = "testrun",
   )
 
 if(is.null(results_directory)) {
+  if(!dir.exists(here::here("experiments"))){
   dir.create(here::here("experiments"))
+  }
   path <- here::here(paste0("experiments/", run_id, ".RDS"))
   } else {
+    if(!dir.exists(results_directory)){
+      dir.create(results_directory)
+    }
     path <- paste0(results_directory,"/", run_id, ".RDS")
   }
 saveRDS(result, path)
