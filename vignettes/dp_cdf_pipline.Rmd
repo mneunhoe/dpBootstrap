@@ -29,99 +29,238 @@ First you need to define the differentially private mechanism that you want to a
 Note that for this particular dp cdf mechanism you need to provide a lower and upper bound where you expect the data to be (without looking at the data!).
 
 ```{r}
-mechanism <- function(x) {
-  lower_bound <- -3
-  upper_bound <- 3
+
+projected_dp_cdf_mechanism <- function(data, n_bins = 1000, rho = 0.5, lower_bound = -3, upper_bound = 3) {
   
   # This generates a projected dp cdf of the data. All functions are part of the
   # dpBootstrap package.
   projected_dp_cdf <-
-    x |> bin_data(lower_bound = lower_bound, upper_bound = upper_bound, n_bins = 1000) |> dp_cdf(rho = Inf) |>
+    data |> bin_data(lower_bound = lower_bound,
+                     upper_bound = upper_bound,
+                     n_bins = n_bins) |> dp_cdf(rho = rho) |>
     project_dp_cdf()
   
+  return(projected_dp_cdf)
+}
+
+
+get_synthetic_data_from_cdf <- function(P_tilde) {
+  lower_bound <- P_tilde$x[2]
+  upper_bound <- P_tilde$x[length(P_tilde$x)-1]
   # For the generic pipeline to work we want the output of the mechanism to be
   # synthetic data in the same format as the input data.
-  M_inv <- get_inv_M(length(projected_dp_cdf$y))
+  M_inv <- get_inv_M(length(P_tilde$y))
+  
+  
   
   # Get counts per bin
   tmp_count <-
-    round(M_inv %*% projected_dp_cdf$y * projected_dp_cdf$n, 0)
+    rmultinom(1, P_tilde$n, M_inv %*% P_tilde$y)
+  
   
   # Replicate each bin the number of counts (this will bias mean estimation on 
   # the synthetic data by approx. bin_width/2)
-  synth_data <- NULL
+  synthetic_data <- NULL
   for (i in 1:nrow(tmp_count)) {
-    synth_data <-
-      c(synth_data, rep(projected_dp_cdf$x[i], tmp_count[i,]))
+    synthetic_data <-
+      c(synthetic_data, rep(P_tilde$x[i], tmp_count[i,]))
   }
-  
+
   # Make sure that examples in the excess bins are outside the boundaries but
   # not -Inf or Inf (R won't count them otherwise).
-  synth_data[synth_data == -Inf] <- lower_bound - 1
-  synth_data[synth_data == Inf] <- upper_bound + 1
+  synthetic_data[synthetic_data == -Inf] <- lower_bound - 1
+  synthetic_data[synthetic_data == Inf] <- upper_bound + 1
   
-  return(synth_data)
+  return(synthetic_data)
 }
+
+
 ```
 
 What statistics of interest do you want to calculate on the private data?
 The output should be a named list.
 
 ```{r}
-statistics_of_interest <- function(x) {
-  list(median = median(x),
-       mean = mean(x),
-       quantiles = quantile(x, c(0.1, 0.25, 0.75, 0.9)))
+statistics_of_interest <- function(P_tilde) {
+  
+  synthetic_data <- get_synthetic_data_from_cdf(P_tilde)
+  
+  
+  list(median = median(synthetic_data),
+       mean = mean(synthetic_data),
+       variance = mean(synthetic_data^2) - mean(synthetic_data)^2,
+       quantiles = unname(quantile(synthetic_data, c(0.1, 0.25, 0.75, 0.9))))
+}
+
+
+statistics_of_interest_data <- function(data) {
+  
+  
+  list(median = median(data),
+       mean = mean(data),
+       variance = mean(data^2) - mean(data)^2,
+       quantiles = quantile(data, c(0.1, 0.25, 0.75, 0.9)))
+}
+
+statistics_of_interest_binned_data <- function(data) {
+  
+  lower_bound <- -3
+  upper_bound <- 3
+  
+  histogram <-
+    data |> bin_data(lower_bound = lower_bound,
+                     upper_bound = upper_bound,
+                     n_bins = 1000)
+  
+  binned_data <- NULL
+  for (i in 1:length(histogram$histogram)) {
+    binned_data <-
+      c(binned_data, rep(histogram$breaks[i], histogram$histogram[i]))
+  }
+  
+  list(median = median(binned_data),
+       mean = mean(binned_data),
+       variance = mean(binned_data^2) - mean(binned_data)^2,
+       quantiles = quantile(binned_data, c(0.1, 0.25, 0.75, 0.9)))
 }
 ```
 
-How do we get one bootstrap sample from the synthetic data?
-Here we use poisson sampling. And put it in a loop.
 
-```{r}
-bootstrap_loop <-
-  function(x_tilde,
-           mechanism,
-           statistics_of_interest,
-           B) {
-    
-    theta_tilde_tilde_list <-
-      vector("list", length = B)
-    
-    cli::cli_progress_bar("Bootstrapping", total = B)
-    for (b in 1:B) {
-      pois <- rpois(length(x_tilde), 1)
-      boot_samp <- NULL
-      for (i in 1:length(pois)) {
-        boot_samp <- c(boot_samp, rep(i, pois[i]))
-      }
-      x_tilde_hat <- x_tilde[boot_samp]
-      x_tilde_tilde <- mechanism(x_tilde_hat)
-      theta_tilde_tilde <- statistics_of_interest(x_tilde_tilde)
-      theta_tilde_tilde_list[[b]] <- theta_tilde_tilde
-      cli::cli_progress_update()
-    }
-    
-    return(theta_tilde_tilde_list)
-  }
-```
 
 Now we have everything defined to run the dp_bootstrap function. Note that depending on the input data and mechanism all of the above functions need to be adapted to the application.
 
 ```{r}
-results <- dp_bootstrap(
-  x = data,
-  mechanism = mechanism,
+
+cdf_results <- dp_bootstrap(
+  data = data,
+  mechanism = projected_dp_cdf_mechanism,
+  get_synthetic_data = get_synthetic_data_from_cdf,
   statistics_of_interest = statistics_of_interest,
-  B = 1000,
-  bootstrap_loop
+  B = 10,
+  store_P_tilde = TRUE,
+  store_P_tilde_tilde = TRUE
 )
+
+cdf_results$P_tilde_tilde
+
 ```
 
-Summarize results
+
+Get Point Estimates and Confidence Intervals from results
 
 ```{r}
-quantile(sapply(results$theta_tilde_tilde, function(x) x$median), c(0.025, 0.975))
+
+get_results <- function(cdf_results, alpha = 0.05){
+# get point estimates from first run
+point_estimates <- cdf_results$theta_tilde
+
+# And quantiles from bootstrap
+confidence_intervals <- vector("list", length = length(point_estimates))
+names(confidence_intervals) <- names(point_estimates)
+
+for(n in names(confidence_intervals)){
+  tmp <- sapply(cdf_results$theta_tilde_tilde, function(x) x[[paste0(n)]])
+  
+  if(is.null(dim(tmp))){
+   res <- quantile(tmp, c(alpha/2,1 - alpha/2))
+  } else {
+    res <- apply(tmp, 1, quantile, c(alpha/2,1 - alpha/2))
+  }
+  
+  confidence_intervals[[paste0(n)]] <- res
+  
+}
+
+return(list(point_estimates = point_estimates,
+            confidence_intervals = confidence_intervals))
+
+}
+
+
+get_results(cdf_results)
+```
+
+
+Monte Carlo repetitions
+
+```{r}
+set.seed(220616)
+
+mc_reps <- 100
+
+mc_results <- vector("list", length = mc_reps)
+
+for(mc_rep in 1:mc_reps){
+
+data <- (rnorm(1000))
+
+
+cdf_results <- dp_bootstrap(
+  data = data,
+  mechanism = projected_dp_cdf_mechanism,
+  get_synthetic_data = get_synthetic_data_from_cdf,
+  statistics_of_interest = statistics_of_interest,
+  B = 10
+)
+
+mc_results[[mc_rep]] <- get_results(cdf_results)
+
+cat("MC Repetition: ", mc_rep, "\n")
+
+}
+```
+
+Analyze Coverage
+
+```{r}
+
+true_values <- list(median = 0,
+                    mean = 0,
+                    variance = 1,
+                    quantiles = qnorm(c(0.1, 0.25, 0.75, 0.9)))
+
+coverage <- vector("list", length = length(true_values))
+
+names(coverage) <- names(true_values)
+
+for(n in names(true_values)){
+  tmp <- lapply(mc_results, function(x) x$confidence_intervals[[paste0(n)]])
+  true_tmp <- true_values[[paste0(n)]]
+  
+  if(length(true_tmp) == 1){
+    coverage[[paste0(n)]] <- mean(sapply(tmp, function(x) x[1] < true_tmp & x[2] > true_tmp))
+    
+    
+  } else {
+    coverage[[paste0(n)]] <- apply(sapply(tmp, function(x) {
+      res <- NULL
+      for(i in 1:length(true_tmp)){
+        res <- c(res, x[1,i] < true_tmp[i] & x[2,i] > true_tmp[i])
+      }
+      return(res)
+    }), 1, mean)
+    
+  }
+  
+}
+
+
+
+# Step 1: Run experiment
+
+# Step 2: Calculate Confidence Intervals
+
+# Step 3: Evaluate
+
+
+# What's the true value 
+
+#
+
+
+
+
+
 
 
 ```
