@@ -22,7 +22,7 @@ run_experiment <- function(run_id = "testrun",
                            store_P_tilde = FALSE,
                            store_P_tilde_tilde = FALSE
                            ) {
-
+  x <- .Random.seed
   drawn_sample <- population_converter(population)(n)
   instantiated_mechanism <- function(data) {
     mechanism(data, ...)
@@ -37,6 +37,7 @@ run_experiment <- function(run_id = "testrun",
     store_P_tilde = store_P_tilde,
     store_P_tilde_tilde = store_P_tilde_tilde
   )
+ attr(result, "seed") <- x
 
 if(is.null(results_directory)) {
   if(!dir.exists(here::here("experiments"))){
