@@ -28,7 +28,7 @@ dp_cdf <-
 
     # Draw noise vector for rho-zCDP
     z <-
-      rnorm(nrow(L), 0, get_zcdp_sigma(rho) * (sum(L[, 1] ^ 2)))
+      rnorm(nrow(L), 0, get_zcdp_sigma(rho) * sqrt(sum(L[, 1] ^ 2)))
 
     # Calculate noisy cumulative sum of histogram
     noisy_cumsum <- M %*% histogram + L %*% z
