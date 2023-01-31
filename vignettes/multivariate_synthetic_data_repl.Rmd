@@ -1,0 +1,746 @@
+---
+title: "multivariate_synthetic_data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{multivariate_synthetic_data}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(dpBootstrap)
+library(reticulate)
+
+use_condaenv("r-reticulate")
+```
+
+
+```{r}
+
+# You need to install the private-pgm python package in the conda environment 
+# to get started.
+mbi <- reticulate::import("mbi")
+
+sp <- reticulate::import("scipy")
+
+
+
+full_data <-
+  mbi$Dataset$load(
+    '/Users/marcelneunhoeffer/Downloads/dataverse_files-4/pgm_data.csv',
+    '/Users/marcelneunhoeffer/Downloads/dataverse_files-4/pgm_data.json'
+  )
+
+
+
+data <-
+  mbi$Dataset$load(
+    '/Users/marcelneunhoeffer/Desktop/github/private-pgm/data/adult.csv',
+    '/Users/marcelneunhoeffer/Desktop/github/private-pgm/data/adult-domain.json'
+  )
+
+
+test_data <-
+  mbi$Dataset$load(
+    '/Users/marcelneunhoeffer/Desktop/github/private-pgm/data/adult.csv',
+    '/Users/marcelneunhoeffer/Desktop/github/private-pgm/data/adult-domain.json'
+  )
+
+
+# Take a sample from the data
+
+sel <- sample(nrow(data$df), size = 5000)
+data$df <- data$df[sel, ]
+
+testset <- test_data$df
+
+testset <- testset[-sel,]
+# Define a draw from a Laplace distribution
+
+rlaplace <- function(n, b) {
+  rexp(n, 1 / b) - rexp(n, 1 / b)
+}
+
+gaussian_sd <- function(rho, sensitivity) {
+  return(sensitivity / sqrt((2 * rho)))
+}
+
+```
+
+Now we can define the mechanism. It works on the mbi Dataset class and returns an object of the same class.
+First the unsupported case (only one-way marginals are measured).
+
+```{r}
+data <- full_data
+
+data_mechanism <- function(data, privacy = 1, zCDP = FALSE, iter = 2000L) {
+  rdomain <- colnames(data$df)
+  domain <- data$domain
+  total <- dim(data$df)[1]
+  
+  cliques <- list()
+  
+  
+  # cliques = list(
+  #   list('age', 'education-num'),
+  #   list('marital-status', 'race'),
+  #   list('sex', 'hours-per-week'),
+  #   list('hours-per-week', 'income>50K'),
+  #   list('education-num', 'income>50K'),
+  #   list('native-country', 'marital-status', 'occupation')
+  # )
+  
+  # cliques = list(
+  #   list('age', 'education-num'),
+  #   list('education-num', 'race'),
+  #   list('race', 'hours-per-week'),
+  #   list('hours-per-week', 'income>50K'),
+  #   list('native-country', 'income>50K'),
+  #   list('native-country', 'marital-status', 'occupation')
+  # )
+  
+  cliques = list(
+    # list('fr', 'univtrad_scaled', 'age', 'gender', 'edugrp', 'DEGURBA'),
+    #  list('fr', 'univtrad_scaled', 'age'),
+    #  list('fr', 'univtrad_scaled', 'gender'),
+    #  list('fr', 'univtrad_scaled', 'edugrp'),
+    #  list('fr', 'univtrad_scaled', 'DEGURBA'),
+    #  list('fr', 'univtrad_scaled'),
+    list('fr', 'univtrad_scaled')
+    # list('fr', 'age'),
+    # list('fr', 'gender'),
+    # list('fr', 'edugrp'),
+    # list('fr', 'DEGURBA')
+    #  list('univtrad_scaled', 'age'),
+    # list('univtrad_scaled', 'gender'),
+    # list('univtrad_scaled', 'edugrp'),
+    # list('univtrad_scaled', 'DEGURBA'),
+    # list('univtrad_scaled', 'year')
+    # list('fr', 'univtrad_scaled', 'age'),
+    # list('univtrad_scaled', 'age', 'gender'),
+    # list('univtrad_scaled', 'age', 'edugrp'),
+    # list('univtrad_scaled', 'age'),
+    # list('univtrad_scaled', 'gender'),
+    # list('univtrad_scaled', 'edugrp'),
+    # list('univtrad_scaled', 'DEGURBA'),
+    # list('univtrad_scaled', 'Tokens'),
+    # list('univtrad_scaled', 'treatment'),
+    # list('univtrad_scaled', 'year'),
+    # list('univtrad_scaled'),
+    # list('fr'),
+    #list('fr', 'univtrad_scaled', 'gender'),
+    #list('fr', 'univtrad_scaled', 'edugrp'),
+    #list('fr', 'univtrad_scaled', 'DEGURBA'),
+    #list('fr', 'univtrad_scaled', 'Tokens'),
+    #list('fr', 'univtrad_scaled', 'treatment'),
+    #list('fr', 'univtrad_scaled', 'year'),
+    #list('fr', 'age', 'gender'),
+    #list('fr', 'age', 'edugrp'),
+    #list('fr', 'age', 'DEGURBA'),
+    #list('fr', 'age', 'Tokens'),
+    #list('fr', 'age', 'treatment'),
+    #list('fr', 'age', 'year'),
+    #list('fr', 'gender', 'edugrp'),
+    #list('fr', 'gender', 'DEGURBA'),
+    #list('fr', 'gender', 'Tokens'),
+    #list('fr', 'gender', 'treatment'),
+    #list('fr', 'gender', 'year'),
+    #list('fr', 'edugrp', 'DEGURBA'),
+    #list('fr', 'edugrp', 'Tokens'),
+    #list('fr', 'edugrp', 'treatment'),
+    #list('fr', 'edugrp', 'year'),
+    #list('fr', 'DEGURBA', 'Tokens'),
+    #list('fr', 'DEGURBA', 'treatment'),
+    #list('fr', 'DEGURBA', 'year'),
+    #list('fr', 'Tokens', 'treatment'),
+    #list('fr', 'Tokens', 'year'),
+    #list('fr', 'treatment', 'year')
+  )
+  
+  
+  
+  epsilon = privacy
+  epsilon_split = epsilon / (length(domain) + length(cliques))
+  sigma = 2.0 / epsilon_split
+  
+  if(zCDP){
+  rho = privacy
+  
+  rho_split = rho / (length(domain) + length(cliques))
+  
+  sigma = gaussian_sd(rho_split, 2)
+  }
+  
+  measurements <- list()
+  counter <- 1
+  for (col in rdomain) {
+    x <- data$project(col)$datavector()
+    if(zCDP){
+      y = x + rnorm(n = length(x), 0, sigma)
+    } else {
+    y = x + rlaplace(n = length(x), b = sigma)
+    }
+    # Does this help?
+    # y[y<0] <- 0
+    # y <- round(y, 0)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, list(col))
+    counter <- counter + 1
+  }
+  
+  
+  
+  if(length(cliques) > 0){
+  for (cl in cliques) {
+    x = data$project(cl)$datavector()
+    if(zCDP){
+      y = x + rnorm(n = length(x), 0, sigma)
+    } else {
+    y = x + rlaplace(n = length(x), b = sigma)
+    }
+    # Does this help?
+    # y[y<0] <- 0
+    # y <- round(y, 0)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, cl)
+    counter <- counter + 1
+  }
+  }
+  meas <<- measurements
+  engine = mbi$FactoredInference(domain, log=TRUE, iters=iter)
+  #engine =  mbi$LocalInference(domain,
+  #                             log = TRUE,
+  #                             iters = 2500L,
+  #                            marginal_oracle = 'convex')
+  
+  model = engine$estimate(measurements, total = total)
+  
+  #synth = model$synthetic_data(rows = as.integer(total))
+  
+  return(model)
+  
+}
+
+synthetic_data <- data_mechanism(full_data, privacy = 1, zCDP = FALSE, iter = 20000L)
+
+#synth_df <- model$synthetic_data(rows = 2653L)$df
+synth_df <- synthetic_data$synthetic_data(rows = 26320L)$df
+synth_df$univtrad_scaled <- synth_df$univtrad_scaled/10
+synth_df$age <- synth_df$age*10
+glm.fit.fr.cov <- glm(fr ~ univtrad_scaled + age + as.factor(gender) + as.factor(edugrp) +as.factor(DEGURBA), data = synth_df, family = binomial(link = "logit"))
+
+summary(glm.fit.fr.cov)
+
+table(full_data$df$fr, full_data$df$univtrad_scaled)
+sweep(table(synth_df$fr, synth_df$univtrad_scaled), MARGIN = 1, table(synth_df$fr), "/")
+
+sweep(table(full_data$df$fr, full_data$df$univtrad_scaled), MARGIN = 1, table(full_data$df$fr), "/")
+
+
+
+rho_to_eps_delta <- function(rho, delta) {
+  eps <- rho + 2*sqrt(rho * log(1/delta))
+  
+  return(c(eps, delta))
+}
+
+rho_to_eps_delta(0.5, 1/2632)
+
+```
+
+The bootstrap mechanism should be the same as the data mechanism. With the only difference, that the data mechanism takes a dataset as input and the bootstrap mechanism takes a generative model as input.
+
+```{r}
+bootstrap_mechanism <- function(P_tilde, n = 5000) {
+  
+  synth = P_tilde$synthetic_data(rows = as.integer(n))
+  
+  rdomain <- colnames(synth$df)
+  domain <- synth$domain
+  total <- dim(synth$df)[1]
+  
+  cliques <- list()
+  
+  
+  # cliques = list(
+  #   list('age', 'education-num'),
+  #   list('marital-status', 'race'),
+  #   list('sex', 'hours-per-week'),
+  #   list('hours-per-week', 'income>50K'),
+  #   list('education-num', 'income>50K'),
+  #   list('native-country', 'marital-status', 'occupation')
+  # )
+  
+  # cliques = list(
+  #   list('age', 'education-num'),
+  #   list('education-num', 'race'),
+  #   list('race', 'hours-per-week'),
+  #   list('hours-per-week', 'income>50K'),
+  #   list('native-country', 'income>50K'),
+  #   list('native-country', 'marital-status', 'occupation')
+  # )
+  
+  
+  
+  epsilon = 1.0
+  epsilon_split = epsilon / (length(domain) + length(cliques))
+  sigma = 2.0 / epsilon_split
+  
+  
+  measurements <- list()
+  counter <- 1
+  for (col in rdomain) {
+    x <- data$project(col)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, list(col))
+    counter <- counter + 1
+  }
+  
+  
+  
+  if(length(cliques) > 0){
+  for (cl in cliques) {
+    x = data$project(cl)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, cl)
+    counter <- counter + 1
+  }
+  }
+  engine = mbi$FactoredInference(domain, log=TRUE, iters=200L)
+  #engine =  mbi$LocalInference(domain,
+  #                             log = TRUE,
+  #                             iters = 2500L,
+  #                            marginal_oracle = 'convex')
+  
+  model = engine$estimate(measurements, total = total)
+  
+  #synth = model$synthetic_data(rows = as.integer(total))
+  
+  return(model)
+  
+}
+```
+
+What statistics of interest do you want to calculate? Make sure that the calculation works on the output object.
+Here just some column statistics (mean and quantiles) and a simple logistic regression.
+
+```{r}
+statistics_of_interest <- function(P_tilde, n = 5000) {
+  
+  synth = P_tilde$synthetic_data(rows = as.integer(n))
+  
+  df <- synth$df
+  
+  m1 <- glm(
+    `income>50K` ~ age + workclass + `education-num` + `hours-per-week`,
+    family = binomial(link = "logit"), data = df
+  )
+  auc <- as.numeric(pROC::auc(pROC::roc(testset$`income>50K`, predict.glm(m1, newdata = testset, type = "response"), direction = "<")))
+  
+ 
+  
+  list(
+    mean = apply(df, 2, mean),
+    quantiles = apply(df, 2, quantile, c(0.1, 0.25, 0.5, 0.75, 0.9)),
+    logit_coefs = coef(
+      m1
+    ),
+    auc = auc
+  )
+}
+
+
+statistics_of_interest_data <- function(x, n = 5000) {
+  
+  df <- x$df
+  
+  m1 <- glm(
+    `income>50K` ~ age + workclass + `education-num` + `hours-per-week`,
+    family = binomial(link = "logit"), data = df
+  )
+  auc <- as.numeric(pROC::auc(pROC::roc(testset$`income>50K`, predict.glm(m1, newdata = testset, type = "response"), direction = "<")))
+
+  
+  list(
+    mean = apply(df, 2, mean),
+    quantiles = apply(df, 2, quantile, c(0.1, 0.25, 0.5, 0.75, 0.9)),
+    logit_coefs = coef(
+      m1
+    ),
+    auc = auc
+  )
+}
+
+``` 
+
+Now we can define the bootstrap loop.
+
+```{r}
+
+bootstrap_loop <-
+  function(P_tilde,
+           bootstrap_mechanism,
+           statistics_of_interest,
+           B) {
+    theta_tilde_tilde_list <- vector("list", length = B)
+    
+    cli::cli_progress_bar("Bootstrapping", total = B)
+    for (b in 1:B) {
+      P_tilde_tilde <- bootstrap_mechanism(P_tilde)
+      theta_tilde_tilde <- statistics_of_interest(P_tilde_tilde)
+      theta_tilde_tilde_list[[b]] <- theta_tilde_tilde
+      cli::cli_progress_update()
+    }
+    
+    return(theta_tilde_tilde_list)
+  }
+```
+
+
+
+```{r}
+
+results_pgm1 <- dp_bootstrap(
+  x = data,
+  data_mechanism = data_mechanism,
+  bootstrap_mechanism = bootstrap_mechanism,
+  statistics_of_interest = statistics_of_interest,
+  B = 5,
+  bootstrap_loop
+)
+```
+
+Finally, summarize the results.
+
+```{r}
+# Statistic of interest
+results_pgm1$theta_tilde$logit_coefs
+
+results_pgm1$theta_tilde$auc
+sapply(results_pgm1$theta_tilde_tilde, function(x) x$auc)
+
+# And confidence intervals
+apply(sapply(results_pgm1$theta_tilde_tilde, function(x) x$logit_coefs), 1, quantile, c(0.025, 0.975))
+
+statistics_of_interest_data(data)$logit_coefs
+statistics_of_interest_data(full_data)$logit_coefs
+
+```
+
+Now a "more" supported case with all two-way marginals of outcome and predictors.
+
+```{r}
+data_mechanism <- function(data) {
+  rdomain <- colnames(data$df)
+  domain <- data$domain
+  total <- dim(data$df)[1]
+  
+  cliques = list(
+    list('age', 'income>50K'),
+    list('workclass', 'income>50K'),
+    list('education-num', 'income>50K'),
+    list('hours-per-week', 'income>50K')
+  )
+  
+  
+  
+  epsilon = 1.0
+  epsilon_split = epsilon / (length(domain) + length(cliques))
+  sigma = 2.0 / epsilon_split
+  
+  
+  measurements <- list()
+  counter <- 1
+  for (col in rdomain) {
+    x <- data$project(col)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, list(col))
+    counter <- counter + 1
+  }
+  
+  
+  
+  if(length(cliques) > 0){
+  for (cl in cliques) {
+    x = data$project(cl)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, cl)
+    counter <- counter + 1
+  }
+  }
+  engine = mbi$FactoredInference(domain, log=TRUE, iters=200L)
+  #engine =  mbi$LocalInference(domain,
+  #                             log = TRUE,
+  #                             iters = 2500L,
+  #                            marginal_oracle = 'convex')
+  
+  model = engine$estimate(measurements, total = total)
+  
+  #synth = model$synthetic_data(rows = as.integer(total))
+  
+  return(model)
+  
+}
+```
+
+The bootstrap mechanism should be the same as the data mechanism. With the only difference, that the data mechanism takes a dataset as input and the bootstrap mechanism takes a generative model as input.
+
+```{r}
+bootstrap_mechanism <- function(P_tilde, n = 5000) {
+  
+  synth = P_tilde$synthetic_data(rows = as.integer(n))
+  
+  rdomain <- colnames(synth$df)
+  domain <- synth$domain
+  total <- dim(synth$df)[1]
+  
+ cliques = list(
+    list('age', 'income>50K'),
+    list('workclass', 'income>50K'),
+    list('education-num', 'income>50K'),
+    list('hours-per-week', 'income>50K')
+  )
+  
+  
+  
+  epsilon = 1.0
+  epsilon_split = epsilon / (length(domain) + length(cliques))
+  sigma = 2.0 / epsilon_split
+  
+  
+  measurements <- list()
+  counter <- 1
+  for (col in rdomain) {
+    x <- data$project(col)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, list(col))
+    counter <- counter + 1
+  }
+  
+  
+  
+  if(length(cliques) > 0){
+  for (cl in cliques) {
+    x = data$project(cl)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, cl)
+    counter <- counter + 1
+  }
+  }
+  engine = mbi$FactoredInference(domain, log=TRUE, iters=200L)
+  #engine =  mbi$LocalInference(domain,
+  #                             log = TRUE,
+  #                             iters = 2500L,
+  #                            marginal_oracle = 'convex')
+  
+  model = engine$estimate(measurements, total = total)
+  
+  #synth = model$synthetic_data(rows = as.integer(total))
+  
+  return(model)
+  
+}
+```
+
+```{r}
+
+results_pgm2 <- dp_bootstrap(
+  x = data,
+  data_mechanism = data_mechanism,
+  bootstrap_mechanism = bootstrap_mechanism,
+  statistics_of_interest = statistics_of_interest,
+  B = 5,
+  bootstrap_loop
+)
+```
+
+Finally, summarize the results.
+
+```{r}
+# Statistic of interest
+results_pgm2$theta_tilde$logit_coefs
+
+results_pgm2$theta_tilde$auc
+sapply(results_pgm2$theta_tilde_tilde, function(x) x$auc)
+
+# And confidence intervals
+apply(sapply(results_pgm2$theta_tilde_tilde, function(x) x$logit_coefs), 1, quantile, c(0.025, 0.975))
+
+statistics_of_interest_data(data)$logit_coefs
+statistics_of_interest_data(full_data)$logit_coefs
+
+
+```
+
+
+
+
+Now a "more" supported case with all two-way marginals of outcome and predictors.
+
+```{r}
+data_mechanism <- function(data) {
+  rdomain <- colnames(data$df)
+  domain <- data$domain
+  total <- dim(data$df)[1]
+  
+   cliques = list(
+    list('workclass', 'age', 'income>50K'),
+    list('education-num', 'workclass', 'income>50K'),
+    list('hours-per-week', 'education-num', 'income>50K'),
+    list('age', 'hours-per-week', 'income>50K'),
+    list('workclass', 'hours-per-week', 'income>50K'),
+    list('education-num', 'age', 'income>50K'),
+    list('education-num', 'hours-per-week', 'income>50K')
+  )
+  
+  
+  
+  epsilon = 1.0
+  epsilon_split = epsilon / (length(domain) + length(cliques))
+  sigma = 2.0 / epsilon_split
+  
+  
+  measurements <- list()
+  counter <- 1
+  for (col in rdomain) {
+    x <- data$project(col)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, list(col))
+    counter <- counter + 1
+  }
+  
+  
+  
+  if(length(cliques) > 0){
+  for (cl in cliques) {
+    x = data$project(cl)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, cl)
+    counter <- counter + 1
+  }
+  }
+  engine = mbi$FactoredInference(domain, log=TRUE, iters=200L)
+  #engine =  mbi$LocalInference(domain,
+  #                             log = TRUE,
+  #                             iters = 2500L,
+  #                            marginal_oracle = 'convex')
+  
+  model = engine$estimate(measurements, total = total)
+  
+  #synth = model$synthetic_data(rows = as.integer(total))
+  
+  return(model)
+  
+}
+```
+
+The bootstrap mechanism should be the same as the data mechanism. With the only difference, that the data mechanism takes a dataset as input and the bootstrap mechanism takes a generative model as input.
+
+```{r}
+bootstrap_mechanism <- function(P_tilde, n = 5000) {
+  
+  synth = P_tilde$synthetic_data(rows = as.integer(n))
+  
+  rdomain <- colnames(synth$df)
+  domain <- synth$domain
+  total <- dim(synth$df)[1]
+  
+ cliques = list(
+    list('workclass', 'age', 'income>50K'),
+    list('education-num', 'workclass', 'income>50K'),
+    list('hours-per-week', 'education-num', 'income>50K'),
+    list('age', 'hours-per-week', 'income>50K'),
+    list('workclass', 'hours-per-week', 'income>50K'),
+    list('education-num', 'age', 'income>50K'),
+    list('education-num', 'hours-per-week', 'income>50K')
+  )
+  
+  
+  
+  epsilon = 1.0
+  epsilon_split = epsilon / (length(domain) + length(cliques))
+  sigma = 2.0 / epsilon_split
+  
+  
+  measurements <- list()
+  counter <- 1
+  for (col in rdomain) {
+    x <- data$project(col)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, list(col))
+    counter <- counter + 1
+  }
+  
+  
+  
+  if(length(cliques) > 0){
+  for (cl in cliques) {
+    x = data$project(cl)$datavector()
+    y = x + rlaplace(n = length(x), b = sigma)
+    I = Matrix::Diagonal(length(x))
+    measurements[[counter]] <- list(I, y, sigma, cl)
+    counter <- counter + 1
+  }
+  }
+  engine = mbi$FactoredInference(domain, log=TRUE, iters=200L)
+  #engine =  mbi$LocalInference(domain,
+  #                             log = TRUE,
+  #                             iters = 2500L,
+  #                            marginal_oracle = 'convex')
+  
+  model = engine$estimate(measurements, total = total)
+  
+  #synth = model$synthetic_data(rows = as.integer(total))
+  
+  return(model)
+  
+}
+```
+
+```{r}
+
+results_pgm3 <- dp_bootstrap(
+  x = data,
+  data_mechanism = data_mechanism,
+  bootstrap_mechanism = bootstrap_mechanism,
+  statistics_of_interest = statistics_of_interest,
+  B = 250,
+  bootstrap_loop
+)
+```
+
+Finally, summarize the results.
+
+```{r}
+# Statistic of interest
+results_pgm2$theta_tilde$logit_coefs
+
+results_pgm2$theta_tilde$auc
+sapply(results_pgm2$theta_tilde_tilde, function(x) x$auc)
+
+# And confidence intervals
+apply(sapply(results_pgm2$theta_tilde_tilde, function(x) x$logit_coefs), 1, quantile, c(0.025, 0.975))
+
+statistics_of_interest_data(data)$logit_coefs
+statistics_of_interest_data(full_data)$logit_coefs
+
+
+```
